@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import urllib
 import json
 import requests
