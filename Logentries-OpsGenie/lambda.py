@@ -3,7 +3,6 @@
 import urllib
 import json
 import requests
-import time
 import io
 import datetime
 
@@ -22,29 +21,30 @@ opsGenieApiURL = 'https://api.opsgenie.com'  # End-point URL for OpsGenie.
 htmlFilePath = "/tmp/logEntries.html"  # Path of the file that will be created and then attached to the alert.
 
 
-def lambda_handler(event, context):
-    opsGenieAlertId = event['alert']['alertId']
+def lambda_handler(event):
+    ops_genie_alertid = event['alert']['alertId']
     action = event["action"]
 
-    if str(action) != "Create" and str(action) != "queryLogs":  # Check the action of the alert, discard if it's not Create or queryLogs.
+    # Check the action of the alert, discard if it's not Create or queryLogs.
+    if str(action) != "Create" and str(action) != "queryLogs":
         response = {"Status": "Ignoring Request"}
         return response
 
     def get_query_string_from_alert():
         # Get the query string from the alert's extra properties.
 
-        req = requests.get(opsGenieApiURL + "/v1/json/alert?apiKey=" + opsGenieApiKey + "&id=" + opsGenieAlertId)
+        req = requests.get(opsGenieApiURL + "/v1/json/alert?apiKey=" + opsGenieApiKey + "&id=" + ops_genie_alertid)
         alert = req.json()
         details = alert['details']
-        queryString = details['queryString']
+        query_string = details['queryString']
 
-        return queryString
+        return query_string
 
     def create_html_file(content):
         # Create html file from template with given content in htmlFilePath.
 
-        with io.FileIO(htmlFilePath, "w") as file:
-            file.write("""
+        with io.FileIO(htmlFilePath, "w") as f:
+            f.write("""
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -58,19 +58,19 @@ def lambda_handler(event, context):
         <th>Message</th>
     </tr>
     """)
-            file.write(content)
-            file.write("""
+            f.write(content)
+            f.write("""
     </table>
     </body>
     </html>
     """)
-            file.close()
+            f.close()
 
     def attach_file_to_alert():
         # Do a post request to OpsGenie to attach created html file to the alert.
 
         req = requests.post(opsGenieApiURL + "/v1/json/alert/attach",
-                            data={"apiKey": opsGenieApiKey, "id": opsGenieAlertId},
+                            data={"apiKey": opsGenieApiKey, "id": ops_genie_alertid},
                             files={"attachment": open(htmlFilePath, "rb")})
         return req.json()
 
@@ -83,8 +83,8 @@ def lambda_handler(event, context):
 
         req = urllib.urlopen('https://api.logentries.com/' + accountkey + '/hosts/')
 
-        response = json.load(req)
-        for hosts in response['list']:
+        resp = json.load(req)
+        for hosts in resp['list']:
             dict_host_names_keys[hosts['key']] = hosts['name']
 
         return dict_host_names_keys
@@ -97,8 +97,8 @@ def lambda_handler(event, context):
         for k, v in dict_host_names_keys.iteritems():
             if v != r'Inactivity Alerts':
                 req = urllib.urlopen('http://api.logentries.com/' + accountkey + '/hosts/' + k + '/')
-                response = json.load(req)
-                for logs in response['list']:
+                resp = json.load(req)
+                for logs in resp['list']:
                     dict_logs_names_keys[logs['key']] = logs['name']
         return dict_logs_names_keys
 
@@ -113,24 +113,23 @@ def lambda_handler(event, context):
         Make the get request to the url and return the response.
         """
         try:
-            response = requests.get(provided_url, headers={'x-api-key': apiKey})
-            return response
+            resp = requests.get(provided_url, headers={'x-api-key': apiKey})
+            return resp
         except requests.exceptions.RequestException as error:
             print error
 
     def handle_response(resp):
-        response = resp
-        if response.status_code == 200 or response.status_code == 202:
+        if resp.status_code == 200 or resp.status_code == 202:
             if 'events' in response.json():
                 content = ""
 
                 for logevent in response.json()['events']:
-                    logTimestamp = logevent["timestamp"]
+                    log_timestamp = logevent["timestamp"]
 
-                    logTime = datetime.datetime.fromtimestamp(int(logTimestamp) / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+                    log_time = datetime.datetime.fromtimestamp(int(log_timestamp)/1000.0).strftime('%Y-%m-%d %H:%M:%S')
 
                     content += "<tr><td align=\"center\">"
-                    content += str(logTime)
+                    content += str(log_time)
                     content += "</td><td style=\"word-wrap: break-word\">"
 
                     for key, val in json.loads(logevent["message"]).iteritems():
@@ -141,15 +140,15 @@ def lambda_handler(event, context):
                     print(json.dumps(logevent, indent=4).decode('string_escape'))
 
                 create_html_file(content)
-            if 'links' in response.json():
+            if 'links' in resp.json():
                 continue_request(resp)
             else:
-                print json.dumps(response.json(), indent=4, separators={':', ';'})
+                print json.dumps(resp.json(), indent=4, separators={':', ';'})
         else:
-            print 'Error status code ' + str(response.status_code)
+            print 'Error status code ' + str(resp.status_code)
             return
 
-    def post_query(logkeys, url=None):
+    def post_query(log_keys, url=None):
         uri = url
         body = None
         if not url:
@@ -157,7 +156,7 @@ def lambda_handler(event, context):
                 {
                     "logs": ["""
 
-            for k in logkeys:
+            for k in log_keys:
                 data += "\"" + str(k) + "\", "
 
             data = data[:-2]
@@ -184,12 +183,12 @@ def lambda_handler(event, context):
     hosts = get_host_name(accountKey)
     logs = get_logs_names(accountKey, hosts)
 
-    logkeys = []
+    log_keys_list = []
 
-    for logKey in logs.iterkeys():
-        logkeys.append(logKey)
+    for log_key in logs.iterkeys():
+        log_keys_list.append(log_key)
 
-    post_query(logkeys)
+    post_query(log_keys_list)
 
     attach_file_to_alert()
 
